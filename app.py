@@ -15,7 +15,7 @@ def genera_proiezione_ortogonale(lista_dati, premium=False):
     ax.set_aspect('equal')
     ax.axis('off')
     
-    limit = 55
+    limit = 60
     ax.plot([-limit, limit], [0, 0], color='black', linewidth=1.5)
     ax.plot([0, 0], [-limit, limit], color='black', linewidth=1)
     ax.text(-limit+2, 2, "P.V.", fontsize=12, fontweight='bold', color='gray')
@@ -32,59 +32,53 @@ def genera_proiezione_ortogonale(lista_dati, premium=False):
         angle = np.radians(rot)
         x_c, y_c = -dPL - L/2, -dPV - P/2
         offset = np.pi/4 if lati == 4 and rot == 0 else 0
-        
         theta = np.linspace(0, 2*np.pi, lati+1)[:-1] + angle + offset
         vx, vy = x_c + (L/2) * np.cos(theta), y_c + (P/2) * np.sin(theta)
-        punti_po = np.column_stack([vx, vy])
-        punti_chiusi = np.vstack([punti_po, punti_po[0]])
-
-        # 1. P.O.
-        ax.plot(punti_chiusi[:, 0], punti_chiusi[:, 1], color='black', linewidth=2)
+        
+        # 1. PIANO ORIZZONTALE (Sempre)
+        ax.plot(np.append(vx, vx[0]), np.append(vy, vy[0]), color='black', linewidth=2)
         if 'pir' in tipo or 'con' in tipo:
-            for p in punti_po: ax.plot([x_c, p[0]], [y_c, p[1]], color='black', linewidth=0.8)
+            for p_x, p_y in zip(vx, vy): ax.plot([x_c, p_x], [y_c, p_y], color='black', linewidth=0.8)
 
         if premium:
             x_min, x_max = np.min(vx), np.max(vx)
             y_min, y_max = np.min(vy), np.max(vy)
             
-            # 2. P.V. e P.L.
+            # 2. PIANO VERTICALE
             if 'pir' in tipo or 'con' in tipo:
                 ax.plot([x_min, x_max, x_c, x_min], [0, 0, H, 0], color='black', linewidth=2)
             else:
                 ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=2)
             
-            # Archi di ribaltamento PL
+            # 3. PIANO LATERALE (Archi)
             t_arco = np.linspace(1.5*np.pi, 2*np.pi, 50)
             for ry in [y_min, y_max, y_c]:
                 r = abs(ry)
                 ax.plot(r*np.cos(t_arco), r*np.sin(t_arco), color='orange', linestyle='--', linewidth=0.6)
-
-            # 3. PIANO AUSILIARIO (Solo se richiesto)
+            
+            # 4. PIANO AUSILIARIO (Solo se necessario)
             if aux:
-                angle_aux = np.radians(30) # Inclinazione piano ausiliario
-                l_aux_x = np.array([20, 50])
-                l_aux_y = np.array([10, 30])
-                ax.plot(l_aux_x, l_aux_y, color='purple', linewidth=1.5, linestyle='-.')
-                ax.text(35, 25, "P.A.", color='purple', fontweight='bold')
-                # Proiezione punti su PA
-                for px, py in zip(vx, vy):
-                    ax.plot([px, px+15], [py, py+15], color='purple', linestyle=':', linewidth=0.5, alpha=0.5)
+                ang_aux = np.radians(-35) # Angolo LT ausiliaria
+                ax.plot([-limit, 0], [(-limit*np.tan(ang_aux))-25, (-25)], color='blue', linewidth=1.5, linestyle='-.')
+                ax.text(-limit+5, (-limit*np.tan(ang_aux))-22, "L.T. Ausiliaria (P.A.)", color='blue', fontsize=10)
+                for i in range(len(vx)):
+                    dist = 25
+                    ax.plot([vx[i], vx[i]-dist*np.sin(ang_aux)], [vy[i], vy[i]+dist*np.cos(ang_aux)], color='blue', linestyle=':', linewidth=0.6, alpha=0.5)
 
     if not premium:
-        ax.text(0, 30, "SBLOCCA MASTER PER VISTE AUSILIARIE", color='red', alpha=0.3, fontsize=18, ha='center')
+        ax.text(20, 20, "BLOCCATO\nSblocca Premium", color='red', alpha=0.3, fontsize=18, ha='center', va='center', rotation=45)
     
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
     return fig
 
-# --- UI ---
 if 'premium' not in st.session_state: st.session_state.premium = False
 
 with st.sidebar:
     st.title("💎 Area Master")
     if not st.session_state.premium:
-        st.link_button("Mensile (4,99€)", LINK_MENSILE)
-        st.link_button("Lifetime (19,99€)", LINK_LIFETIME)
+        st.link_button("Sblocca P.V. e P.L. (4,99€)", LINK_MENSILE)
+        st.link_button("Sblocca Tutto per sempre (19,99€)", LINK_LIFETIME)
         code = st.text_input("Codice licenza:", type="password")
         if st.button("Attiva Master"):
             if code == CODICE_SEGRETO:
@@ -93,23 +87,20 @@ with st.sidebar:
     else: st.success("✅ MODALITÀ AVANZATA ATTIVA")
 
 st.title("📐 TavolaPronta AI Master")
-traccia = st.text_area("Inserisci la traccia (es. con piano ausiliario):")
+st.info("Esempio: Disegna un parallelepipedo 6x4x10 ruotato di 30 gradi e proietta la sua vera forma su un piano ausiliario.")
+traccia = st.text_area("Cosa vuoi disegnare?")
 
 if st.button("🚀 GENERA TAVOLA"):
     if traccia:
-        try:
-            client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-            prompt = """
-            Sei un ingegnere. Restituisci JSON lista 'solidi'.
-            REGOLE: Se la traccia menziona 'piano ausiliario' o 'sezione inclinata', imposta 'piano_ausiliario': true.
-            JSON: {"solidi": [{"tipo", "lunghezza", "profondita", "altezza", "dist_pv", "dist_pl", "rotazione", "lati", "piano_ausiliario"}]}
-            """
-            res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": traccia}],
-                response_format={"type": "json_object"}
-            )
-            lista = json.loads(res.choices[0].message.content).get("solidi", [])
-            st.pyplot(genera_proiezione_ortogonale(lista, premium=st.session_state.premium))
-        except Exception as e:
-            st.error(f"Errore: {e}")
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        prompt = """Analizza la traccia e restituisci JSON lista 'solidi'. 
+        Se chiede 'piano ausiliario' o 'vera forma', imposta 'piano_ausiliario': true.
+        Se rotazione non specificata, rotazione=0. Lati: Esagono=6, Quadrato=4.
+        JSON: {"solidi": [{"tipo", "lunghezza", "profondita", "altezza", "dist_pv", "dist_pl", "rotazione", "lati", "piano_ausiliario"}]}"""
+        res = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": traccia}],
+            response_format={"type": "json_object"}
+        )
+        lista = json.loads(res.choices[0].message.content).get("solidi", [])
+        st.pyplot(genera_proiezione_ortogonale(lista, premium=st.session_state.premium))
