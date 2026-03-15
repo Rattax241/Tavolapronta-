@@ -4,75 +4,86 @@ import numpy as np
 import json
 from groq import Groq
 
-st.set_page_config(page_title="TavolaPronta AI Master", layout="wide")
+st.set_page_config(page_title="TavolaPronta AI Master", layout="wide", page_icon="📐")
 
-# --- MOTORE DI DISEGNO PROFESSIONALE ---
-def genera_tavola_master(dati, premium=True):
+LINK_MENSILE = "https://buy.stripe.com/TUO_LINK_MENSILE"
+LINK_LIFETIME = "https://buy.stripe.com/TUO_LINK_LIFETIME"
+CODICE_SEGRETO = "TP-PRO-2026-99X"
+
+def genera_proiezione_ortogonale(dati, premium=False):
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.set_aspect('equal')
-    ax.axis('off') # Nasconde i bordi del grafico per sembrare un foglio bianco
-
-    # Disegno Squadratura e Assi (come un foglio reale)
-    ax.plot([-25, 25], [0, 0], color='black', linewidth=1.5) # Linea di terra
-    ax.plot([0, 0], [-25, 25], color='black', linewidth=1)   # Asse verticale
+    ax.axis('off')
+    ax.plot([-35, 35], [0, 0], color='black', linewidth=1.5)
+    ax.plot([0, 0], [-35, 35], color='black', linewidth=1)
     
-    # Recupero Dati
+    tipo = dati.get('tipo', 'solido').lower()
     L, P, H = dati.get('lunghezza', 6), dati.get('profondita', 5), dati.get('altezza', 10)
     dPV, dPL = dati.get('dist_pv', 2), dati.get('dist_pl', 3)
-    rot = dati.get('rotazione', 0) # Inclinazione opzionale
+    rot, lati = dati.get('rotazione', 0), dati.get('lati', 4)
 
-    # --- PIANO ORIZZONTALE (P.O.) ---
     x_c, y_c = -dPL - L/2, -dPV - P/2
-    # Calcolo vertici ruotati
-    def get_rot_rect(xc, yc, l, p, r):
-        angle = np.radians(r)
-        c, s = np.cos(angle), np.sin(angle)
-        pts = np.array([[-l/2, -p/2], [l/2, -p/2], [l/2, p/2], [-l/2, p/2], [-l/2, -p/2]])
-        return pts @ np.array([[c, -s], [s, c]]) + [xc, yc]
+    angle = np.radians(rot)
+    theta = np.linspace(0, 2*np.pi, lati+1)[:-1] + angle
+    vx, vy = x_c + (L/2) * np.cos(theta), y_c + (P/2) * np.sin(theta)
+    punti_po = np.column_stack([vx, vy])
+    punti_chiusi = np.vstack([punti_po, punti_po[0]])
 
-    poly_po = get_rot_rect(x_c, y_c, L, P, rot)
-    ax.plot(poly_po[:, 0], poly_po[:, 1], color='black', linewidth=2)
-    ax.text(x_c, y_c - P, "P.O.", fontsize=12, fontweight='bold')
+    ax.plot(punti_chiusi[:, 0], punti_chiusi[:, 1], color='black', linewidth=2.5)
+    if 'piramide' in tipo or 'cono' in tipo:
+        for p in punti_po: ax.plot([x_c, p[0]], [y_c, p[1]], color='black', linewidth=1)
 
     if premium:
-        # --- PIANO VERTICALE (P.V.) ---
-        x_start, x_end = np.min(poly_po[:, 0]), np.max(poly_po[:, 0])
-        ax.plot([x_start, x_end, x_end, x_start, x_start], [0, 0, H, H, 0], color='blue', linewidth=2)
-        
-        # Linee di richiamo (proiezioni)
-        for vx in [x_start, x_end]:
-            ax.plot([vx, vx], [np.min(poly_po[:, 1]), H], color='gray', linestyle=':', linewidth=0.8)
+        x_min, x_max = np.min(vx), np.max(vx)
+        y_min, y_max = np.min(vy), np.max(vy)
+        if 'piramide' in tipo or 'cono' in tipo:
+            ax.plot([x_min, x_max, x_c, x_min], [0, 0, H, 0], color='black', linewidth=2.5)
+        else:
+            ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=2.5)
+        for px in [x_min, x_max, x_c]:
+            ax.plot([px, px], [y_max, H if px==x_c and 'pir' in tipo else 0], color='gray', linestyle=':', linewidth=0.7)
+        t_arco = np.linspace(1.5*np.pi, 2*np.pi, 50)
+        for ry in [y_min, y_max, y_c]:
+            r = abs(ry)
+            ax.plot(r*np.cos(t_arco), r*np.sin(t_arco), color='orange', linestyle='--', linewidth=0.8)
+            ax.plot([r, r], [0, H if ry==y_c and 'pir' in tipo else 0], color='gray', linestyle=':', linewidth=0.7)
+        z_min, z_max, z_c = abs(y_max), abs(y_min), abs(y_c)
+        if 'piramide' in tipo or 'cono' in tipo:
+            ax.plot([z_min, z_max, z_c, z_min], [0, 0, H, 0], color='black', linewidth=2.5)
+        else:
+            ax.plot([z_min, z_max, z_max, z_min, z_min], [0, 0, H, H, 0], color='black', linewidth=2.5)
 
-        # --- PIANO LATERALE (P.L.) ---
-        y_low, y_high = np.min(poly_po[:, 1]), np.max(poly_po[:, 1])
-        # Archi di ribaltamento
-        t = np.linspace(1.5*np.pi, 2*np.pi, 50)
-        for r in [abs(y_low), abs(y_high)]:
-            ax.plot(r*np.cos(t), r*np.sin(t), color='orange', linestyle='--', linewidth=0.8)
-            ax.plot([r, r], [0, H], color='gray', linestyle=':', linewidth=0.8) # Proiezione in alto
-        
-        ax.plot([abs(y_high), abs(y_low), abs(y_low), abs(y_high), abs(y_high)], [0, 0, H, H, 0], color='green', linewidth=2)
-        
-        # Titoli Piani
-        ax.text(-20, 2, "P.V.", fontsize=12)
-        ax.text(15, 2, "P.L.", fontsize=12)
-
+    ax.text(-28, 1, "P.V.", fontsize=14, fontweight='bold')
+    ax.text(-28, -2, "P.O.", fontsize=14, fontweight='bold')
+    ax.text(2, 28, "P.L.", fontsize=14, fontweight='bold')
     return fig
 
-# --- INTERFACCIA STREAMLIT ---
+if 'premium' not in st.session_state: st.session_state.premium = False
+
 st.title("📐 TavolaPronta AI Master")
-st.write("Generazione tavole tecniche con standard da ufficio progetti")
 
-traccia = st.text_area("Copia qui la traccia del libro (es: Parallelepipedo 6x4x8 a 2cm da PV e 3cm da PL)")
+with st.sidebar:
+    st.header("💎 Versione Premium")
+    if not st.session_state.premium:
+        st.link_button("Mensile (4,99€)", LINK_MENSILE)
+        st.link_button("Lifetime (19,99€)", LINK_LIFETIME)
+        code = st.text_input("Codice licenza:", type="password")
+        if st.button("Attiva Premium"):
+            if code == CODICE_SEGRETO:
+                st.session_state.premium = True
+                st.rerun()
+    else:
+        st.success("✅ Licenza Master Attiva")
 
-if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
+traccia = st.text_area("Inserisci la traccia:")
+if st.button("🚀 GENERA DISEGNO"):
     if traccia:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         res = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[{"role": "system", "content": "Estrai JSON: lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione."}],
+            messages=[{"role": "system", "content": "Estrai JSON: tipo, lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione, lati."}],
             response_format={"type": "json_object"}
         )
         dati = json.loads(res.choices[0].message.content)
-        fig = genera_tavola_master(dati, premium=st.session_state.get('premium', True))
-        st.pyplot(fig)
+        st.pyplot(genera_proiezione_ortogonale(dati, premium=st.session_state.premium))
+        if not st.session_state.premium: st.warning("Sblocca Premium per PV e PL")
