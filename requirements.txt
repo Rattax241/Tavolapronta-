@@ -1,5 +1,4 @@
 streamlit
-ezdxf
 groq
 numpy
 matplotlib
