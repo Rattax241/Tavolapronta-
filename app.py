@@ -1,128 +1,78 @@
 import streamlit as st
-import ezdxf
-import json
+import matplotlib.pyplot as plt
 import numpy as np
+import json
 from groq import Groq
 
-# --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="TavolaPronta AI Pro", layout="centered", page_icon="📐")
+st.set_page_config(page_title="TavolaPronta AI Master", layout="wide")
 
-# --- COSTANTI (INCOLLA QUI I TUOI LINK STRIPE REALI) ---
-LINK_MENSILE = "https://buy.stripe.com/TUO_LINK_MENSILE"
-LINK_LIFETIME = "https://buy.stripe.com/TUO_LINK_LIFETIME"
-CODICE_SEGRETO = "TAVOLA2026"
+# --- MOTORE DI DISEGNO PROFESSIONALE ---
+def genera_tavola_master(dati, premium=True):
+    fig, ax = plt.subplots(figsize=(12, 12))
+    ax.set_aspect('equal')
+    ax.axis('off') # Nasconde i bordi del grafico per sembrare un foglio bianco
 
-# --- MOTORE GEOMETRICO ---
-def genera_tavola_perfetta(dati_json, premium=False):
-    doc = ezdxf.new('R2010')
-    msp = doc.modelspace()
+    # Disegno Squadratura e Assi (come un foglio reale)
+    ax.plot([-25, 25], [0, 0], color='black', linewidth=1.5) # Linea di terra
+    ax.plot([0, 0], [-25, 25], color='black', linewidth=1)   # Asse verticale
     
-    # Layer standard tecnici
-    doc.layers.new(name='PROIEZIONI', dxfattribs={'color': 7, 'lineweight': 35})
-    doc.layers.new(name='COSTRUZIONE', dxfattribs={'color': 8, 'lineweight': 15})
-    doc.layers.new(name='ASSI', dxfattribs={'color': 1})
-    
-    # Disegno Assi Principali (Linea di Terra e Verticale)
-    msp.add_line((-50, 0), (50, 0), dxfattribs={'layer': 'ASSI'})
-    msp.add_line((0, -50), (0, 50), dxfattribs={'layer': 'ASSI'})
+    # Recupero Dati
+    L, P, H = dati.get('lunghezza', 6), dati.get('profondita', 5), dati.get('altezza', 10)
+    dPV, dPL = dati.get('dist_pv', 2), dati.get('dist_pl', 3)
+    rot = dati.get('rotazione', 0) # Inclinazione opzionale
 
-    for fig in dati_json.get('figure', []):
-        x_base = fig.get('x', 10)
-        y_base = fig.get('y', -10) 
-        r = fig.get('raggio', 5)
-        h = fig.get('altezza', 12)
-        lati = fig.get('lati', 0)
+    # --- PIANO ORIZZONTALE (P.O.) ---
+    x_c, y_c = -dPL - L/2, -dPV - P/2
+    # Calcolo vertici ruotati
+    def get_rot_rect(xc, yc, l, p, r):
+        angle = np.radians(r)
+        c, s = np.cos(angle), np.sin(angle)
+        pts = np.array([[-l/2, -p/2], [l/2, -p/2], [l/2, p/2], [-l/2, p/2], [-l/2, -p/2]])
+        return pts @ np.array([[c, -s], [s, c]]) + [xc, yc]
 
-        # 1. PIANO ORIZZONTALE (P.O.)
-        if lati >= 3:
-            punti_po = []
-            for i in range(lati):
-                angle = 2 * np.pi * i / lati
-                p_x, p_y = x_base + r * np.cos(angle), y_base + r * np.sin(angle)
-                punti_po.append((p_x, p_y))
-            punti_po.append(punti_po[0])
-            msp.add_lwpolyline(punti_po, dxfattribs={'layer': 'PROIEZIONI'})
-        else:
-            msp.add_circle((x_base, y_base), radius=r, dxfattribs={'layer': 'PROIEZIONI'})
+    poly_po = get_rot_rect(x_c, y_c, L, P, rot)
+    ax.plot(poly_po[:, 0], poly_po[:, 1], color='black', linewidth=2)
+    ax.text(x_c, y_c - P, "P.O.", fontsize=12, fontweight='bold')
 
-        # 2. PROIEZIONI VERTICALI E RIBALTAMENTI (SOLO PREMIUM)
-        if premium:
-            # Vista Frontale (P.V.)
-            msp.add_lwpolyline([(x_base-r, 0), (x_base+r, 0), (x_base, h), (x_base-r, 0)], dxfattribs={'layer': 'PROIEZIONI'})
-            
-            # Linee di richiamo verticali P.O. -> P.V.
-            msp.add_line((x_base-r, y_base), (x_base-r, h), dxfattribs={'layer': 'COSTRUZIONE'})
-            msp.add_line((x_base+r, y_base), (x_base+r, h), dxfattribs={'layer': 'COSTRUZIONE'})
+    if premium:
+        # --- PIANO VERTICALE (P.V.) ---
+        x_start, x_end = np.min(poly_po[:, 0]), np.max(poly_po[:, 0])
+        ax.plot([x_start, x_end, x_end, x_start, x_start], [0, 0, H, H, 0], color='blue', linewidth=2)
+        
+        # Linee di richiamo (proiezioni)
+        for vx in [x_start, x_end]:
+            ax.plot([vx, vx], [np.min(poly_po[:, 1]), H], color='gray', linestyle=':', linewidth=0.8)
 
-            # Archi di ribaltamento per P.L. (Il tocco del professore)
-            center = (0, 0)
-            msp.add_arc(center, radius=abs(y_base-r), start_angle=270, end_angle=360, dxfattribs={'layer': 'COSTRUZIONE'})
-            msp.add_arc(center, radius=abs(y_base+r), start_angle=270, end_angle=360, dxfattribs={'layer': 'COSTRUZIONE'})
-            
-            # Vista Laterale (P.L.)
-            x_pl = abs(y_base)
-            msp.add_lwpolyline([(x_pl-r, 0), (x_pl+r, 0), (x_pl, h), (x_pl-r, 0)], dxfattribs={'layer': 'PROIEZIONI'})
+        # --- PIANO LATERALE (P.L.) ---
+        y_low, y_high = np.min(poly_po[:, 1]), np.max(poly_po[:, 1])
+        # Archi di ribaltamento
+        t = np.linspace(1.5*np.pi, 2*np.pi, 50)
+        for r in [abs(y_low), abs(y_high)]:
+            ax.plot(r*np.cos(t), r*np.sin(t), color='orange', linestyle='--', linewidth=0.8)
+            ax.plot([r, r], [0, H], color='gray', linestyle=':', linewidth=0.8) # Proiezione in alto
+        
+        ax.plot([abs(y_high), abs(y_low), abs(y_low), abs(y_high), abs(y_high)], [0, 0, H, H, 0], color='green', linewidth=2)
+        
+        # Titoli Piani
+        ax.text(-20, 2, "P.V.", fontsize=12)
+        ax.text(15, 2, "P.L.", fontsize=12)
 
-    nome = "tavola_pro.dxf"
-    doc.saveas(nome)
-    return nome
+    return fig
 
-# --- INTERFACCIA UTENTE ---
-st.title("📐 TavolaPronta AI Pro")
-st.write("Genera proiezioni ortogonali complete partendo dalla traccia del libro")
+# --- INTERFACCIA STREAMLIT ---
+st.title("📐 TavolaPronta AI Master")
+st.write("Generazione tavole tecniche con standard da ufficio progetti")
 
-if 'premium' not in st.session_state: st.session_state.premium = False
+traccia = st.text_area("Copia qui la traccia del libro (es: Parallelepipedo 6x4x8 a 2cm da PV e 3cm da PL)")
 
-with st.sidebar:
-    st.header("💎 Versione Premium")
-    if not st.session_state.premium:
-        st.write("Sblocca le proiezioni complete P.V. e P.L.")
-        st.link_button("Mensile (4,99€)", LINK_MENSILE)
-        st.link_button("Lifetime (19,99€)", LINK_LIFETIME)
-        st.divider()
-        code = st.text_input("Codice ricevuto via mail:")
-        if st.button("Attiva Premium"):
-            if code == CODICE_SEGRETO:
-                st.session_state.premium = True
-                st.rerun()
-            else:
-                st.error("Codice errato")
-    else:
-        st.success("🌟 Modalità Professionista Attiva")
-
-traccia = st.text_area("Cosa devi disegnare? (Es: Piramide esagonale raggio 5 altezza 12)")
-
-if st.button("🚀 GENERA DISEGNO"):
-    if not traccia:
-        st.warning("Inserisci il testo dell'esercizio")
-    else:
-        try:
-            with st.spinner("L'intelligenza artificiale sta calcolando le proiezioni..."):
-                client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                res = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "Sei un docente di disegno tecnico. Estrai dati geometrici in JSON: lista 'figure' con tipo, x, y, raggio, altezza, lati (6 per esagono, 3 per triangolo, 0 per cerchio)."},
-                        {"role": "user", "content": traccia}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                
-                dati = json.loads(res.choices[0].message.content)
-                file_path = genera_tavola_perfetta(dati, premium=st.session_state.premium)
-                
-                with open(file_path, "rb") as f:
-                    st.download_button(
-                        label="💾 Scarica file .DXF",
-                        data=f,
-                        file_name="tavola_pronta.dxf",
-                        mime="application/dxf"
-                    )
-                
-                if not st.session_state.premium:
-                    st.info("💡 Stai scaricando solo il P.O. Passa a Premium per avere anche P.V. e P.L. con gli archi di ribaltamento")
-        except Exception as e:
-            st.error("Errore: controlla di aver inserito GROQ_API_KEY nei Secrets di Streamlit")
-
-st.divider()
-st.caption("TavolaPronta AI - Disegno Tecnico Automatizzato")
+if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
+    if traccia:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        res = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": "Estrai JSON: lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione."}],
+            response_format={"type": "json_object"}
+        )
+        dati = json.loads(res.choices[0].message.content)
+        fig = genera_tavola_master(dati, premium=st.session_state.get('premium', True))
+        st.pyplot(fig)
