@@ -4,112 +4,117 @@ import numpy as np
 import json
 from groq import Groq
 
-st.set_page_config(page_title="TavolaPronta AI Master", layout="wide", page_icon="📐")
+# --- CONFIGURAZIONE INTERFACCIA ---
+st.set_page_config(page_title="TavolaPronta AI Master Multi-Solido", layout="wide", page_icon="📐")
 
+# --- COSTANTI E LINK ---
 LINK_MENSILE = "https://buy.stripe.com/TUO_LINK_MENSILE"
 LINK_LIFETIME = "https://buy.stripe.com/TUO_LINK_LIFETIME"
 CODICE_SEGRETO = "TP-PRO-2026-99X"
 
-def genera_proiezione_ortogonale(dati, premium=False):
+# --- MOTORE GRAFICO MULTI-SOLIDO ---
+def genera_proiezione_ortogonale(lista_dati, premium=False):
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.set_aspect('equal')
     ax.axis('off')
     
-    limit = 60
-    ax.plot([-limit, limit], [0, 0], color='black', linewidth=1.5)
-    ax.plot([0, 0], [-limit, limit], color='black', linewidth=1)
-    ax.text(-limit+2, 2, "P.V.", fontsize=12, fontweight='bold', color='gray')
-    ax.text(-limit+2, -5, "P.O.", fontsize=12, fontweight='bold', color='gray')
-    ax.text(2, limit-5, "P.L.", fontsize=12, fontweight='bold', color='gray')
+    # Assi principali e scritte piani
+    ax.plot([-35, 35], [0, 0], color='black', linewidth=1.5)
+    ax.plot([0, 0], [-35, 35], color='black', linewidth=1)
+    ax.text(-32, 1.5, "PIANO VERTICALE (P.V.)", fontsize=10, color='gray', fontweight='bold')
+    ax.text(-32, -2.5, "PIANO ORIZZONTALE (P.O.)", fontsize=10, color='gray', fontweight='bold')
+    ax.text(2, 32, "PIANO LATERALE (P.L.)", fontsize=10, color='gray', fontweight='bold')
     
-    # Estrazione sicura
-    tipo = str(dati.get('tipo', 'solido')).lower()
-    L = float(dati.get('lunghezza') or 6)
-    P = float(dati.get('profondita') or 4)
-    H = float(dati.get('altezza') or 10)
-    dPV = float(dati.get('dist_pv') or 5)
-    dPL = float(dati.get('dist_pl') or 7)
-    rot = float(dati.get('rotazione') or 0)
-    lati = int(dati.get('lati') or 4)
-    aux = bool(dati.get('piano_ausiliario', False))
+    for dati in lista_dati:
+        tipo = dati.get('tipo', 'solido').lower()
+        L = dati.get('lunghezza', 6)
+        P = dati.get('profondita', 5)
+        H = dati.get('altezza', 10)
+        dPV = dati.get('dist_pv', 2)
+        dPL = dati.get('dist_pl', 3)
+        rot = dati.get('rotazione', 0)
+        lati = dati.get('lati', 4)
 
-    # 1. PIANO ORIZZONTALE (P.O.)
-    x_c, y_c = -dPL - L/2, -dPV - P/2
-    angle = np.radians(rot)
-    offset = np.pi/4 if lati == 4 and rot == 0 else 0
-    t = np.linspace(0, 2*np.pi, lati+1)[:-1] + angle + offset
-    vx = x_c + (L/2) * np.cos(t)
-    vy = y_c + (P/2) * np.sin(t)
-    ax.plot(np.append(vx, vx[0]), np.append(vy, vy[0]), color='black', linewidth=2.5)
-
-    if premium:
-        x_min, x_max = np.min(vx), np.max(vx)
-        y_min, y_max = np.min(vy), np.max(vy)
+        # 1. DISEGNO P.O.
+        x_c, y_c = -dPL - L/2, -dPV - P/2
+        angle = np.radians(rot)
+        theta = np.linspace(0, 2*np.pi, lati+1)[:-1] + angle
+        vx, vy = x_c + (L/2) * np.cos(theta), y_c + (P/2) * np.sin(theta)
+        punti_po = np.column_stack([vx, vy])
+        punti_chiusi = np.vstack([punti_po, punti_po[0]])
+        ax.plot(punti_chiusi[:, 0], punti_chiusi[:, 1], color='black', linewidth=2)
         
-        # 2. PIANO VERTICALE (P.V.)
-        ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=2.5)
-        
-        # 3. PIANO LATERALE (P.L.)
-        t_arco_pl = np.linspace(1.5*np.pi, 2*np.pi, 50)
-        for ry in [y_min, y_max]:
-            r = abs(ry)
-            ax.plot(r*np.cos(t_arco_pl), r*np.sin(t_arco_pl), color='orange', linestyle='--', linewidth=1)
-            ax.plot([r, r], [0, H], color='black', linewidth=1.5)
-        ax.plot([abs(y_min), abs(y_max)], [H, H], color='black', linewidth=1.5)
+        if 'piramide' in tipo or 'cono' in tipo:
+            for p in punti_po: ax.plot([x_c, p[0]], [y_c, p[1]], color='black', linewidth=0.8)
 
-        # 4. PIANO AUSILIARIO (P.A.) - Stile Ribaltamento a Sinistra
-        if aux:
-            ang_pa = np.radians(135) # Linea inclinata nel quadrante PV/PO a sinistra
-            ax.plot([0, limit*np.cos(ang_pa)], [0, limit*np.sin(ang_pa)], color='blue', linewidth=2, linestyle='-.')
-            ax.text(limit*np.cos(ang_pa)+2, limit*np.sin(ang_pa)-2, "P.A.", color='blue', fontweight='bold')
-            
-            # Archi di ribaltamento per portare la X del PO sul piano inclinato
-            t_arco_aux = np.linspace(0.5*np.pi, ang_pa, 50)
-            for val_x in [abs(x_min), abs(x_max)]:
-                ax.plot(-val_x*np.cos(t_arco_aux - np.pi/2), val_x*np.sin(t_arco_aux - np.pi/2), color='blue', linestyle='--', linewidth=0.8)
-                
-            # Disegno vera forma semplificata perpendicolare
-            ax.plot([x_min-5, x_min-15], [H+5, H+15], color='blue', linewidth=1.5)
-
+        # 2. LOGICA PREMIUM
+        if premium:
+            x_min, x_max = np.min(vx), np.max(vx)
+            y_min, y_max = np.min(vy), np.max(vy)
+            # P.V.
+            if 'piramide' in tipo or 'cono' in tipo:
+                ax.plot([x_min, x_max, x_c, x_min], [0, 0, H, 0], color='black', linewidth=2)
+            else:
+                ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=2)
+            # Proiezioni
+            for px in [x_min, x_max, x_c]:
+                ax.plot([px, px], [y_max, H if px==x_c and ('pir' in tipo or 'con' in tipo) else 0], color='gray', linestyle=':', linewidth=0.5)
+            # P.L. con Archi
+            t_arco = np.linspace(1.5*np.pi, 2*np.pi, 50)
+            for ry in [y_min, y_max, y_c]:
+                r = abs(ry)
+                ax.plot(r*np.cos(t_arco), r*np.sin(t_arco), color='orange', linestyle='--', linewidth=0.6)
+                ax.plot([r, r], [0, H if ry==y_c and ('pir' in tipo or 'con' in tipo) else 0], color='gray', linestyle=':', linewidth=0.5)
+            # Disegno P.L.
+            z_min, z_max, z_c = abs(y_max), abs(y_min), abs(y_c)
+            if 'piramide' in tipo or 'cono' in tipo:
+                ax.plot([z_min, z_max, z_c, z_min], [0, 0, H, 0], color='black', linewidth=2)
+            else:
+                ax.plot([z_min, z_max, z_max, z_min, z_min], [0, 0, H, H, 0], color='black', linewidth=2)
+    
+    if not premium:
+        ax.text(15, 15, "VERSIONE MASTER RICHIESTA\nSblocca P.V. e P.L.", color='red', alpha=0.3, fontsize=18, ha='center', va='center', rotation=45)
     return fig
 
 # --- UI APP ---
 if 'premium' not in st.session_state: st.session_state.premium = False
+
 with st.sidebar:
     st.title("💎 Area Master")
     if not st.session_state.premium:
-        code = st.text_input("Codice licenza:", type="password")
-        if st.button("Attiva Master"):
+        st.link_button("Abbonamento Mensile (4,99€)", LINK_MENSILE)
+        st.link_button("Accesso Illimitato (19,99€)", LINK_LIFETIME)
+        code = st.text_input("Codice attivazione:", type="password")
+        if st.button("Attiva Funzioni Master"):
             if code == CODICE_SEGRETO:
                 st.session_state.premium = True
                 st.rerun()
     else:
-        st.success("✅ MODALITÀ MASTER ATTIVA")
-        if st.button("Logout"):
-            st.session_state.premium = False
-            st.rerun()
+        st.success("✅ MODALITÀ MULTI-SOLIDO ATTIVA")
 
 st.title("📐 TavolaPronta AI Master")
-traccia = st.text_area("Cosa vuoi disegnare?")
+traccia = st.text_area("Descrivi l'esercizio (anche con più solidi):", placeholder="Esempio: Una piramide esagonale raggio 5 altezza 12 e un cubo di lato 4 affiancato...")
 
-if st.button("🚀 GENERA TAVOLA"):
+if st.button("🚀 GENERA TAVOLA COMPLESSA"):
     if traccia:
         try:
-            client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-            prompt = """Rispondi SOLO JSON. No testo. 
-            Se chiede 'piano ausiliario', 'vera forma' o 'ribaltamento', piano_ausiliario: true.
-            JSON: {"tipo": "cubo", "lunghezza": 6, "profondita": 4, "altezza": 10, "dist_pv": 5, "dist_pl": 7, "rotazione": 0, "lati": 4, "piano_ausiliario": false}"""
-            
-            res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": traccia}, {"role": "system", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            dati = json.loads(res.choices[0].message.content)
-            
-            # Sanificazione per evitare TypeError
-            if isinstance(dati, list): dati = dati[0]
-            
-            st.pyplot(genera_proiezione_ortogonale(dati, premium=st.session_state.premium))
-        except Exception as e:
-            st.error("Riprova semplificando la traccia.")
+            with st.spinner("L'IA sta scomponendo i solidi..."):
+                client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                prompt_sistema = """
+                Sei un ingegnere esperto. Analizza la traccia e restituisci una LISTA di oggetti JSON denominata 'solidi'.
+                REGOLE LATI: Esagono=6, Pentagono=5, Quadrato=4, Triangolo=3, Cilindro/Cono=100.
+                Assicurati che ogni solido abbia coordinate dist_pv e dist_pl diverse se la traccia dice che sono affiancati.
+                FORMATO: {"solidi": [{"tipo", "lunghezza", "profondita", "altezza", "dist_pv", "dist_pl", "rotazione", "lati"}]}
+                """
+                res = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "system", "content": prompt_sistema}, {"role": "user", "content": traccia}],
+                    response_format={"type": "json_object"}
+                )
+                risultato = json.loads(res.choices[0].message.content)
+                lista_solidi = risultato.get("solidi", [])
+                
+                st.pyplot(genera_proiezione_ortogonale(lista_solidi, premium=st.session_state.premium))
+                if not st.session_state.premium: st.error("🔒 Sblocca Master per vedere la tavola completa.")
+        except:
+            st.error("Errore nell'elaborazione dei solidi multipli.")
