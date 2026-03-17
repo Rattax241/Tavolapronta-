@@ -39,7 +39,7 @@ def genera_proiezione_ortogonale(lista_solidi, premium=False):
         rot = float(dati.get('rotazione') or 0)
         lati = int(dati.get('lati') or 4)
 
-        # 1. PIANO ORIZZONTALE
+        # 1. PIANO ORIZZONTALE (Sempre visibile)
         x_c, y_c = -dPL - L/2, -dPV - P/2
         angle = np.radians(rot)
         offset_poly = np.pi/4 if (lati == 4 and rot == 0) else 0
@@ -50,15 +50,16 @@ def genera_proiezione_ortogonale(lista_solidi, premium=False):
         if 'pir' in tipo or 'con' in tipo:
             for px, py in zip(vx, vy): ax.plot([x_c, px], [y_c, py], color=colore, linewidth=0.8, alpha=0.5)
 
+        # 2. VISUALIZZAZIONE PREMIUM (P.V. e P.L.)
         if premium:
             x_min, x_max = np.min(vx), np.max(vx)
             y_min, y_max = np.min(vy), np.max(vy)
-            # 2. PIANO VERTICALE
+            # PV
             if 'pir' in tipo or 'con' in tipo:
                 ax.plot([x_min, x_max, x_c, x_min], [0, 0, H, 0], color=colore, linewidth=2.5)
             else:
                 ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color=colore, linewidth=2.5)
-            # 3. PIANO LATERALE
+            # PL con archi
             t_arco = np.linspace(1.5*np.pi, 2*np.pi, 50)
             for ry in [y_min, y_max, y_c if 'pir' in tipo else y_min]:
                 r = abs(ry)
@@ -68,9 +69,15 @@ def genera_proiezione_ortogonale(lista_solidi, premium=False):
                 ax.plot([z_min, z_max, z_c, z_min], [0, 0, H, 0], color=colore, linewidth=2.5)
             else:
                 ax.plot([z_min, z_max, z_max, z_min, z_min], [0, 0, H, H, 0], color=colore, linewidth=2.5)
+    
+    if not premium:
+        # Messaggi di blocco sui piani PV e PL
+        ax.text(-limit/2, limit/2, "🔒 P.V. BLOCCATO\nAcquista la licenza per sbloccare", color='red', alpha=0.4, fontsize=15, ha='center', va='center', fontweight='bold')
+        ax.text(limit/2, limit/2, "🔒 P.L. BLOCCATO\nAcquista la licenza per sbloccare", color='red', alpha=0.4, fontsize=15, ha='center', va='center', fontweight='bold')
+
     return fig
 
-# --- UI BARRA LATERALE E COSTI ---
+# --- UI BARRA LATERALE ---
 if 'premium' not in st.session_state: st.session_state.premium = False
 
 with st.sidebar:
@@ -89,32 +96,34 @@ with st.sidebar:
             st.link_button("Sblocca per Sempre", LINK_LIFETIME, use_container_width=True)
             
         st.divider()
-        code = st.text_input("Hai già un codice?", type="password", placeholder="Inserisci codice...")
-        if st.button("Attiva Licenza", use_container_width=True):
+        st.write("🔑 **Attivazione**")
+        code = st.text_input("Inserisci il codice che ti è stato inviato a seguito dell’acquisto:", type="password", placeholder="Codice licenza...")
+        if st.button("Attiva Licenza Master", use_container_width=True):
             if code == CODICE_SEGRETO:
                 st.session_state.premium = True
                 st.rerun()
-            else: st.error("Codice non valido")
+            else: st.error("Codice non valido o scaduto")
     else:
         st.success("✅ ABBONAMENTO MASTER ATTIVO")
-        st.info("🚧 **Work in Progress**: La funzione 'Piano Ausiliario' per solidi inclinati (Tav. 6) è in fase di sviluppo avanzato")
-        if st.button("Disconnetti Licenza"):
+        st.info("🚧 **Work in Progress**: Stiamo ottimizzando la Tavola 6 e il Piano Ausiliario.")
+        if st.button("Logout Licenza"):
             st.session_state.premium = False
             st.rerun()
 
 # --- CORPO APP ---
 st.title("📐 TavolaPronta AI Master")
-st.write("Genera proiezioni ortogonali di precisione per uno o più solidi (max 3)")
+st.write("Generazione tecnica multi-solido per professionisti e studenti.")
 
-traccia = st.text_area("Descrivi l'esercizio (es: 'Cubo lato 6 e Cilindro raggio 3 altezza 8'):", height=120)
+traccia = st.text_area("Cosa vuoi disegnare oggi? (Supporta fino a 3 solidi contemporaneamente):", height=120)
 
 if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
     if traccia:
         try:
             client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-            prompt = """Rispondi SOLO in JSON. Estrai fino a 3 solidi. 
-            Struttura: {"solidi": [{"tipo": "string", "lunghezza": 6, "profondita": 5, "altezza": 10, "dist_pv": 5, "dist_pl": 10, "rotazione": 0, "lati": 4}]}
-            Se cilindro/cono metti lati: 100."""
+            prompt = """Analizza la traccia e restituisci un JSON con una lista 'solidi' (max 3). 
+            Parametri: tipo, lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione, lati.
+            Se cilindro/cono: lati=100.
+            Rispondi SOLO JSON."""
             res = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": prompt}, {"role": "user", "content": traccia}],
@@ -122,6 +131,5 @@ if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
             )
             dati = json.loads(res.choices[0].message.content).get('solidi', [])
             if dati: st.pyplot(genera_proiezione_ortogonale(dati, premium=st.session_state.premium))
-            else: st.warning("Nessun solido riconosciuto nella traccia")
-        except: st.error("Errore tecnico nella generazione dei solidi multipli")
-
+            else: st.warning("Specifica meglio le misure dei solidi")
+        except: st.error("Errore nell'elaborazione della traccia complessa")
