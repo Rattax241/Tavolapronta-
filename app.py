@@ -16,75 +16,84 @@ def genera_proiezione_ortogonale(dati, premium=False):
     ax.axis('off')
     
     limit = 50
-    # Assi Cartesiani Principali
     ax.plot([-limit, limit], [0, 0], color='black', linewidth=1.5)
     ax.plot([0, 0], [-limit, limit], color='black', linewidth=1)
+    ax.text(-limit+2, 2, "P.V.", fontsize=12, fontweight='bold', color='gray')
+    ax.text(-limit+2, -4, "P.O.", fontsize=12, fontweight='bold', color='gray')
+    ax.text(2, limit-4, "P.L.", fontsize=12, fontweight='bold', color='gray')
     
+    # Estrazione sicura dei dati (Anti-Crash)
     tipo = str(dati.get('tipo', 'solido')).lower()
-    L = float(dati.get('lunghezza', 6) or 6)
-    P = float(dati.get('profondita', 5) or 5)
-    H = float(dati.get('altezza', 10) or 10)
-    dPV = float(dati.get('dist_pv', 2) or 2)
-    dPL = float(dati.get('dist_pl', 3) or 3)
-    rot = float(dati.get('rotazione', 0) or 0)
-    lati = int(dati.get('lati', 4) or 4)
+    L = float(dati.get('lunghezza') or 6)
+    P = float(dati.get('profondita') or 4)
+    H = float(dati.get('altezza') or 10)
+    dPV = float(dati.get('dist_pv') or 5)
+    dPL = float(dati.get('dist_pl') or 7)
+    rot = float(dati.get('rotazione') or 0)
+    lati = int(dati.get('lati') or 4)
     aux = dati.get('piano_ausiliario', False)
 
-    # 1. PIANO ORIZZONTALE (P.O.)
+    # 1. PIANO ORIZZONTALE (Sempre)
     x_c, y_c = -dPL - L/2, -dPV - P/2
     angle = np.radians(rot)
     offset = np.pi/4 if lati == 4 and rot == 0 else 0
     theta = np.linspace(0, 2*np.pi, lati+1)[:-1] + angle + offset
     vx, vy = x_c + (L/2) * np.cos(theta), y_c + (P/2) * np.sin(theta)
-    ax.plot(np.append(vx, vx[0]), np.append(vy, vy[0]), color='black', linewidth=2)
+    ax.plot(np.append(vx, vx[0]), np.append(vy, vy[0]), color='black', linewidth=2.5)
 
     if premium:
-        # 2. P.V. e P.L. (Standard)
         x_min, x_max = np.min(vx), np.max(vx)
         y_min, y_max = np.min(vy), np.max(vy)
-        ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=1.5) # PV semplificato
+        
+        # 2. PIANO VERTICALE
+        ax.plot([x_min, x_max, x_max, x_min, x_min], [0, 0, H, H, 0], color='black', linewidth=2)
+        
+        # 3. PIANO LATERALE (Archi classici a destra)
+        t_arco = np.linspace(1.5*np.pi, 2*np.pi, 50)
+        for ry in [y_min, y_max]:
+            r = abs(ry)
+            ax.plot(r*np.cos(t_arco), r*np.sin(t_arco), color='orange', linestyle='--', linewidth=0.8)
+            ax.plot([r, r], [0, H], color='gray', linestyle=':', linewidth=0.7)
 
-        # 3. PIANO AUSILIARIO (Stile Immagine: Ribaltamento a Sinistra)
+        # 4. PIANO AUSILIARIO (Solo se necessario)
         if aux:
-            # Asse Inclinato (P.A.alfa)
-            ang_pa = np.radians(60) 
-            ax.plot([0, -limit*np.cos(ang_pa)], [0, -limit*np.sin(ang_pa)], color='black', linewidth=1.2)
-            ax.text(-limit*np.cos(ang_pa), -limit*np.sin(ang_pa), "P.A. α", fontsize=10, fontweight='bold')
-
-            # Archi di ribaltamento verso il piano ausiliario (Quadrante in alto a SX)
-            t_arco_sx = np.linspace(0.5*np.pi, np.pi - ang_pa, 50)
-            for dist_x in [abs(x_min), abs(x_max)]:
-                r = dist_x
-                # Disegno l'arco che porta la proiezione dal PV all'asse inclinato
-                ax.plot(-r*np.cos(t_arco_sx - np.pi/2), r*np.sin(t_arco_sx - np.pi/2), color='gray', linestyle='--', linewidth=0.7, alpha=0.6)
+            # Linea di terra inclinata nel quadrante SX (stile immagine caricata)
+            ang_pa = np.radians(135) 
+            ax.plot([0, limit*np.cos(ang_pa)], [0, limit*np.sin(ang_pa)], color='blue', linewidth=1.5, linestyle='-.')
             
-            # Linee di proiezione perpendicolari all'asse inclinato (Vera Forma)
-            for i in range(len(vx)):
-                # Calcolo proiezione dal PO perpendicolare all'asse inclinato
-                ax.plot([vx[i], vx[i]-10], [vy[i], vy[i]-15], color='blue', linestyle=':', linewidth=0.5, alpha=0.4)
+            # Archi di ribaltamento verso SX
+            t_arco_aux = np.linspace(0.5*np.pi, ang_pa, 50)
+            for r in [abs(x_min), abs(x_max)]:
+                ax.plot(-r*np.cos(t_arco_aux - np.pi/2), r*np.sin(t_arco_aux - np.pi/2), color='blue', linestyle='--', linewidth=0.6)
 
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
     return fig
 
-# --- RESTO DEL CODICE INVARIATO ---
+# --- LOGICA APP ---
 if 'premium' not in st.session_state: st.session_state.premium = False
+
 with st.sidebar:
     st.title("💎 Area Master")
     if not st.session_state.premium:
-        st.link_button("Sblocca Tutto", LINK_LIFETIME)
-        code = st.text_input("Codice:", type="password")
-        if st.button("Attiva"):
+        st.link_button("Sblocca P.V. e P.L. (4,99€)", LINK_MENSILE)
+        st.link_button("Sblocca Tutto per sempre (19,99€)", LINK_LIFETIME)
+        code = st.text_input("Codice licenza:", type="password")
+        if st.button("Attiva Master"):
             if code == CODICE_SEGRETO:
                 st.session_state.premium = True
                 st.rerun()
-    else: st.success("✅ MODALITÀ MASTER")
+    else: st.success("✅ MODALITÀ MASTER ATTIVA")
 
 st.title("📐 TavolaPronta AI Master")
 traccia = st.text_area("Cosa vuoi disegnare?")
+
 if st.button("🚀 GENERA TAVOLA"):
     if traccia:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        prompt = "Estrai JSON. Se chiede 'piano ausiliario' o 'vera forma', piano_ausiliario: true. JSON: {tipo, lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione, lati, piano_ausiliario}"
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "user", "content": traccia}], response_format={"type": "json_object"})
-        st.pyplot(genera_proiezione_ortogonale(json.loads(res.choices[0].message.content), premium=st.session_state.premium))
+        try:
+            client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+            prompt = "Rispondi SOLO JSON. Se chiede 'piano ausiliario' o 'vera forma', piano_ausiliario: true. JSON: {tipo, lunghezza, profondita, altezza, dist_pv, dist_pl, rotazione, lati, piano_ausiliario}"
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "user", "content": traccia}], response_format={"type": "json_object"})
+            dati = json.loads(res.choices[0].message.content)
+            st.pyplot(genera_proiezione_ortogonale(dati, premium=st.session_state.premium))
+        except: st.error("Errore nell'elaborazione della traccia.")
