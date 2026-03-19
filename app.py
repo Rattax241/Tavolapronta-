@@ -13,39 +13,53 @@ LINK_MENSILE = "https://buy.stripe.com/TUO_LINK_MENSILE"
 LINK_LIFETIME = "https://buy.stripe.com/TUO_LINK_LIFETIME"
 CODICE_SEGRETO = "TP-PRO-2026-99X"
 
-# --- FUNZIONE VISTA 3D (SBLOCCATA COL PREMIUM) ---
-def genera_vista_3d(lista_solidi):
+# --- NUOVA FUNZIONE VISTA 3D PERFEZIONATA (SOLO PREMIUM) ---
+def genera_vista_3d_perfezionata(lista_solidi):
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')
     limit = 25
-    # Disegno dei piani di riferimento (la "stanza")
+    
+    # Disegno dei piani di riferimento (la "stanza delle proiezioni")
     xx, yy = np.meshgrid(np.linspace(-limit, 0, 2), np.linspace(-limit, 0, 2))
-    ax.plot_surface(xx, yy, np.zeros_like(xx), alpha=0.1, color='gray') 
-    ax.plot_surface(xx, np.zeros_like(xx), yy + limit, alpha=0.1, color='blue')
-    ax.plot_surface(np.zeros_like(xx), xx, yy + limit, alpha=0.1, color='red')
+    ax.plot_surface(xx, yy, np.zeros_like(xx), alpha=0.1, color='gray') # PO
+    ax.plot_surface(xx, np.zeros_like(xx), yy + limit, alpha=0.1, color='blue') # PV
+    ax.plot_surface(np.zeros_like(xx), xx, yy + limit, alpha=0.1, color='red') # PL
     
     colori = ['#2c3e50', '#2980b9', '#e74c3c']
     for i, dati in enumerate(lista_solidi[:3]):
+        tipo = dati.get('tipo', '').lower()
         L, P, H = float(dati.get('lunghezza') or 6), float(dati.get('profondita') or 5), float(dati.get('altezza') or 10)
         dPV, dPL = float(dati.get('dist_pv') or 5), float(dati.get('dist_pl') or 5)
+        
+        # Coordinate base (PO è Z=0, PV è Y=0, PL è X=0)
         x_c, y_c = -dPL - L/2, -dPV - P/2
-        # Rappresentazione schematica 3D
-        z_base = np.zeros(5)
-        z_top = np.full(5, H)
         xi = [x_c-L/2, x_c+L/2, x_c+L/2, x_c-L/2, x_c-L/2]
         yi = [y_c-P/2, y_c-P/2, y_c+P/2, y_c+P/2, y_c-P/2]
-        ax.plot(xi, yi, 0, color=colori[i], linewidth=2)
-        if 'pir' in dati.get('tipo', '').lower():
-            for px, py in zip(xi[:4], yi[:4]): ax.plot([px, x_c], [py, y_c], [0, H], color=colori[i], linewidth=1)
+        
+        # Disegno base sul PO
+        ax.plot(xi, yi, 0, color=colori[i], linewidth=2.5)
+        
+        if 'pir' in tipo or 'con' in tipo:
+            # VERA GEOMETRIA: Disegno piramide/cono sospeso che converge nel vertice
+            for px, py in zip(xi[:4], yi[:4]):
+                # Spigoli laterali sospesi
+                ax.plot([px, x_c], [py, y_c], [0, H], color=colori[i], linewidth=1.5)
+                # Ombreggiatura leggera sulle facce laterali
+                if 'pir' in tipo:
+                    ax.fill_between([px, x_c], [py, y_c], [0, H], color=colori[i], alpha=0.15)
         else:
-            ax.plot(xi, yi, H, color=colori[i], linewidth=2)
-            for px, py in zip(xi[:4], yi[:4]): ax.plot([px, px], [py, py], [0, H], color=colori[i], linestyle='--', alpha=0.5)
-    
+            # VERA GEOMETRIA: Disegno prisma suspended con ombreggiatura
+            ax.plot(xi, yi, H, color=colori[i], linewidth=2.5) # Base superiore
+            for px, py in zip(xi[:4], yi[:4]):
+                # Spigoli laterali e ombreggiatura
+                ax.plot([px, px], [py, py], [0, H], color=colori[i], linewidth=1)
+                ax.fill_between([px, px+L/2 if px==xi[0] else px-L/2], [py, py], [0, H], color=colori[i], alpha=0.1)
+
     ax.view_init(elev=20, azim=45)
-    ax.set_axis_off()
+    ax.set_axis_off() # Nascondo gli assi per una vista pulita
     return fig
 
-# --- MOTORE GRAFICO MULTI-SOLIDO (CON LINEE DI RIBALTAMENTO) ---
+# --- MOTORE GRAFICO MULTI-SOLIDO (IDENTICO A ADESSO) ---
 def genera_proiezione_ortogonale(lista_solidi, premium=False):
     fig, ax = plt.subplots(figsize=(14, 14), facecolor='#ffffff')
     ax.set_aspect('equal')
@@ -89,7 +103,7 @@ def genera_proiezione_ortogonale(lista_solidi, premium=False):
         ax.text(limit/2, limit/2, "🔒 P.L. BLOCCATO\nAcquista la licenza per sbloccare", color='red', alpha=0.4, fontsize=15, ha='center', va='center', fontweight='bold')
     return fig
 
-# --- UI BARRA LATERALE (IDENTICA A PRIMA) ---
+# --- UI BARRA LATERALE (IDENTICA A ADESSO) ---
 if 'premium' not in st.session_state: st.session_state.premium = False
 with st.sidebar:
     st.title("💎 Area Premium Master")
@@ -105,23 +119,22 @@ with st.sidebar:
             st.link_button("Sblocca per Sempre", LINK_LIFETIME, use_container_width=True)
         st.divider()
         st.write("🔑 **Attivazione**")
-        code = st.text_input("Inserisci il codice che ti è stato inviato a seguito dell’acquisto:", type="password", placeholder="Codice licenza...")
+        code = st.text_input("Inserisci il codice attivazione:", type="password", placeholder="Codice licenza...")
         if st.button("Attiva Licenza Master", use_container_width=True):
             if code == CODICE_SEGRETO:
                 st.session_state.premium = True
                 st.rerun()
-            else: st.error("Codice non valido o scaduto")
+            else: st.error("Codice errato")
     else:
         st.success("✅ ABBONAMENTO MASTER ATTIVO")
-        st.info("🚧 **Work in Progress**: Stiamo ottimizzando la Tavola 6 e il Piano Ausiliario.")
         if st.button("Logout Licenza"):
             st.session_state.premium = False
             st.rerun()
 
-# --- CORPO APP (IDENTICO A PRIMA) ---
+# --- CORPO APP (IDENTICO A ADESSO) ---
 st.title("📐 TavolaPronta AI Master")
 st.write("Generazione tecnica multi-solido per professionisti e studenti.")
-traccia = st.text_area("Cosa vuoi disegnare oggi? (Supporta fino a 3 solidi contemporaneamente):", height=120)
+traccia = st.text_area("Cosa vuoi disegnare oggi?", height=120)
 if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
     if traccia:
         try:
@@ -136,7 +149,7 @@ if st.button("🚀 GENERA TAVOLA PROFESSIONALE"):
                 st.pyplot(genera_proiezione_ortogonale(dati, premium=st.session_state.premium))
                 if st.session_state.premium:
                     st.divider()
-                    st.subheader("📦 Visualizzazione 3D in tempo reale")
-                    st.pyplot(genera_vista_3d(dati))
+                    st.subheader("[💎 MASTER CHOICE] Visualizzazione Assonometrica Sbloccata")
+                    st.pyplot(genera_vista_3d_perfezionata(dati))
             else: st.warning("Specifica meglio le misure dei solidi")
-        except: st.error("Errore nell'elaborazione della traccia")
+        except: st.error("Errore nell'analisi tecnica")
